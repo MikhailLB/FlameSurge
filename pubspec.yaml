@@ -1,0 +1,56 @@
+name: flame_surge
+description: "Flame Surge - a volcanic placement puzzle."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  webview_flutter: ^4.10.0
+  shared_preferences: ^2.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: false
+  image_path: "assets/Icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#FF7A1F00"
+  adaptive_icon_foreground: "assets/Icon.png"
+  adaptive_icon_foreground_inset: 0
+  remove_alpha_ios: false
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/Icon.png
+    - assets/Game_Name.webp
+    - assets/Horizontal_Loading_Screen.webp
+    - assets/Vertical_Loading_Screen.webp
+    - assets/basalt_boulder_asset.webp
+    - assets/bg1_asset.webp
+    - assets/bg2_asset.webp
+    - assets/bg3_asset.webp
+    - assets/crystal_cluster_asset.webp
+    - assets/fire_flower_asset.webp
+    - assets/lava_mushroom_asset.webp
+    - assets/lava_plant_asset.webp
+    - assets/magma_crystal_asset.webp
+    - assets/molten_lava_asset.webp
+    - assets/obsidian_pillar_asset.webp
+    - assets/obsidian_rock_asset.webp
+    - assets/volcanic_magma_vent_asset.webp
+    - assets/volcanic_rock_asset.webp
+    - assets/volcanic_shrub_asset.webp
+    - assets/volcanic_terrain_tile_asset.webp
+    - assets/volcanic_terrain_tile_blocked_asset.webp
