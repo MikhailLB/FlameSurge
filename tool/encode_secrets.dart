@@ -14,7 +14,9 @@ void main() {
     'beacon_host': 'https://flamesuurge.com',
     'beacon_path': '/config.php',
 
-    // attribution info (fill when credentials arrive)
+    // attribution info — DO NOT commit plaintext values.
+    // Fill locally, run the tool, paste the printed bytes into env/*_secrets.dart,
+    // then reset this file back to the empty placeholders before committing.
     'attribution_key': '',
     'push_project_number': '',
     'gcd_host': 'https://gcdsdk.appsflyer.com',

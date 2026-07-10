@@ -49,3 +49,9 @@ app.*.map.json
 # Signing (do not commit to public repo)
 /android/key.properties
 /android/keystore/
+
+# Firebase / attribution credentials — keep OUT of a public repo.
+# Firebase's own API key is SHA-1 restricted so it's not a hard secret,
+# but shipping the project id/link in the repo makes the app trivially
+# fingerprintable. Restore locally before building signed release artifacts.
+/android/app/google-services.json
