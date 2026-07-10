@@ -40,14 +40,17 @@ class DeviceAgent extends http.BaseClient {
       final info = DeviceInfoPlugin();
       if (Platform.isAndroid) {
         final android = await info.androidInfo;
-        final sdk = android.version.sdkInt;
+        // `release` is the marketing string ("15"); `sdkInt` is the API level
+        // (35). Real Chrome UAs use the marketing version — using the API
+        // level here made the UA read "Android 35" which is not a shipping OS.
+        final osRelease = _pickOsRelease(android.version.release);
         final brand = _clean(android.brand);
         final model = _clean(android.model);
         final build = _clean(
           android.display.isNotEmpty ? android.display : android.id,
         );
         return _compose(
-          'Mozilla/5.0 (Linux; Android $sdk; $brand $model Build/$build) '
+          'Mozilla/5.0 (Linux; Android $osRelease; $brand $model Build/$build) '
           'AppleWebKit/$webkitVersion (KHTML, like Gecko) '
           'Chrome/$chromeVersion Mobile Safari/$webkitVersion',
         );
@@ -67,6 +70,15 @@ class DeviceAgent extends http.BaseClient {
   /// Ensures neither the brand nor the model injects spaces / newlines that
   /// would break header parsing on the backend.
   String _clean(String raw) => raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  /// Falls back to the current shipping Android release when the device
+  /// reports an empty string (rare custom ROM case).
+  String _pickOsRelease(String? raw) {
+    if (raw == null) return '15';
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return '15';
+    return trimmed;
+  }
 
   String _fallbackUa() {
     final chromeVersion = unmaskChromeVersion().isNotEmpty

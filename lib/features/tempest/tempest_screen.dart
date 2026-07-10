@@ -6,6 +6,7 @@
 // composition of the artwork.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class TempestScreen extends StatefulWidget {
   const TempestScreen({super.key, required this.retryBuilder});
@@ -25,6 +26,16 @@ class _TempestScreenState extends State<TempestScreen>
   @override
   void initState() {
     super.initState();
+    // Both the vertical and horizontal artwork exist — allow the device to
+    // rotate freely on this surface even if we were locked to portrait by
+    // the arena or the previous screen's dispose().
+    SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+
     _pulse = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1600),

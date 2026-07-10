@@ -209,12 +209,18 @@ class _IgnitionStageState extends State<IgnitionStage>
     final BeaconResponse verdict =
         await widget.configBeacon.queryBeacon(payload);
 
+    // `promptForPush: true` is intentional here — the previous session's
+    // portal launch may have been interrupted before the notification
+    // permission screen appeared (e.g. dev restart, app killed mid-splash),
+    // so we always defer the actual decision to `shouldOfferPushPrompt()`
+    // below in `_openPortal`. That helper is the single source of truth
+    // (granted / OS-denied / cooldown active → skip; otherwise → show).
     if (verdict.hasUsableUrl) {
-      await _openPortal(verdict.url!, promptForPush: false);
+      await _openPortal(verdict.url!, promptForPush: true);
       return;
     }
     if (savedUrl != null) {
-      await _openPortal(savedUrl, promptForPush: false);
+      await _openPortal(savedUrl, promptForPush: true);
       return;
     }
     await _openTempest();

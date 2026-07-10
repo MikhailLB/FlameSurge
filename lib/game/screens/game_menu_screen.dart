@@ -78,6 +78,7 @@ class _GameMenuScreenState extends State<GameMenuScreen> {
                               builder: (_) => const LegalReader(
                                 heading: 'Privacy Policy',
                                 url: Facade.privacyPolicyUrl,
+                                lightMode: true,
                               ),
                             ),
                           ),

@@ -17,7 +17,7 @@
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:extractNativeLibs="false"
-        android:usesCleartextTraffic="false"
+        android:usesCleartextTraffic="true"
         tools:replace="android:allowBackup,android:fullBackupContent,android:dataExtractionRules">
         <activity
             android:name=".MainActivity"

@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Cleartext HTTP is disabled globally. If a specific partner domain must be
-    reached over http:// during testing, add it here as a `<domain-config
-    cleartextTrafficPermitted="true">` block.
+    Cleartext HTTP is intentionally allowed globally - partners routinely
+    ship push URLs over plain http:// (e.g. http://afsub.com/push/,
+    http://track.partner.com/...). Locking this down surfaces as
+    net::ERR_CLEARTEXT_NOT_PERMITTED inside the portal WebView the moment
+    the manager changes a subdomain. See gray_part_pitfalls.md section 17.
+
+    Chrome on Android does not block cleartext by default; the gray flow
+    mirrors that behaviour so any URL a partner can send us renders.
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system"/>
         </trust-anchors>

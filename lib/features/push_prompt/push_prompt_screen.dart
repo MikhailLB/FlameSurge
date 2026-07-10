@@ -3,6 +3,7 @@
 // so we only lay out the two action buttons over it.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/net_sensor.dart';
 import '../../core/push_hub.dart';
@@ -32,6 +33,18 @@ class _PushPromptScreenState extends State<PushPromptScreen> {
   bool _acceptPressed = false;
   bool _skipPressed = false;
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Prompt supports both orientations — matches the two artwork variants.
+    SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
 
   Future<void> _writeSkipCooldown() async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -83,23 +96,33 @@ class _PushPromptScreenState extends State<PushPromptScreen> {
         : 'assets/Horizontal_Notifications_Screen.webp';
     final size = MediaQuery.of(context).size;
 
-    final buttonRow = _ButtonPair(
-      compact: !isPortrait,
-      acceptPressed: _acceptPressed,
-      skipPressed: _skipPressed,
-      busy: _busy,
-      onAcceptDown: () => setState(() => _acceptPressed = true),
-      onAcceptCancel: () => setState(() => _acceptPressed = false),
-      onAcceptUp: () {
-        setState(() => _acceptPressed = false);
-        _onAccept();
-      },
-      onSkipDown: () => setState(() => _skipPressed = true),
-      onSkipCancel: () => setState(() => _skipPressed = false),
-      onSkipUp: () {
-        setState(() => _skipPressed = false);
-        _onSkip();
-      },
+    final acceptButton = SizedBox(
+      width: double.infinity,
+      child: _MoltenAcceptButton(
+        pressed: _acceptPressed,
+        compact: !isPortrait,
+        busy: _busy,
+        onDown: () => setState(() => _acceptPressed = true),
+        onCancel: () => setState(() => _acceptPressed = false),
+        onUp: () {
+          setState(() => _acceptPressed = false);
+          _onAccept();
+        },
+      ),
+    );
+    final skipButton = SizedBox(
+      width: double.infinity,
+      child: _StoneSkipButton(
+        pressed: _skipPressed,
+        compact: !isPortrait,
+        busy: _busy,
+        onDown: () => setState(() => _skipPressed = true),
+        onCancel: () => setState(() => _skipPressed = false),
+        onUp: () {
+          setState(() => _skipPressed = false);
+          _onSkip();
+        },
+      ),
     );
 
     return Scaffold(
@@ -109,18 +132,34 @@ class _PushPromptScreenState extends State<PushPromptScreen> {
         children: <Widget>[
           Image.asset(bg, fit: BoxFit.cover),
           if (isPortrait)
+            // Portrait: buttons stacked vertically, both full-width so they
+            // render at identical dimensions.
             Positioned(
-              left: size.width * 0.08,
-              right: size.width * 0.08,
-              bottom: size.height * 0.08,
-              child: buttonRow,
+              left: size.width * 0.10,
+              right: size.width * 0.10,
+              bottom: size.height * 0.09,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  acceptButton,
+                  const SizedBox(height: 14),
+                  skipButton,
+                ],
+              ),
             )
           else
+            // Landscape: buttons side-by-side, still equal width via Expanded.
             Positioned(
-              left: size.width * 0.30,
-              right: size.width * 0.30,
-              bottom: size.height * 0.07,
-              child: buttonRow,
+              left: size.width * 0.22,
+              right: size.width * 0.22,
+              bottom: size.height * 0.06,
+              child: Row(
+                children: <Widget>[
+                  Expanded(child: acceptButton),
+                  const SizedBox(width: 14),
+                  Expanded(child: skipButton),
+                ],
+              ),
             ),
         ],
       ),
@@ -128,64 +167,9 @@ class _PushPromptScreenState extends State<PushPromptScreen> {
   }
 }
 
-class _ButtonPair extends StatelessWidget {
-  const _ButtonPair({
-    required this.compact,
-    required this.acceptPressed,
-    required this.skipPressed,
-    required this.busy,
-    required this.onAcceptDown,
-    required this.onAcceptCancel,
-    required this.onAcceptUp,
-    required this.onSkipDown,
-    required this.onSkipCancel,
-    required this.onSkipUp,
-  });
-
-  final bool compact;
-  final bool acceptPressed;
-  final bool skipPressed;
-  final bool busy;
-
-  final VoidCallback onAcceptDown;
-  final VoidCallback onAcceptCancel;
-  final VoidCallback onAcceptUp;
-  final VoidCallback onSkipDown;
-  final VoidCallback onSkipCancel;
-  final VoidCallback onSkipUp;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: <Widget>[
-        Expanded(
-          flex: 3,
-          child: _MoltenAcceptButton(
-            pressed: acceptPressed,
-            compact: compact,
-            busy: busy,
-            onDown: onAcceptDown,
-            onCancel: onAcceptCancel,
-            onUp: onAcceptUp,
-          ),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          flex: 2,
-          child: _StoneSkipButton(
-            pressed: skipPressed,
-            compact: compact,
-            busy: busy,
-            onDown: onSkipDown,
-            onCancel: onSkipCancel,
-            onUp: onSkipUp,
-          ),
-        ),
-      ],
-    );
-  }
-}
+// Same height constant for both buttons — the "same size" requirement above.
+const double _kPromptButtonHeightCompact = 52.0;
+const double _kPromptButtonHeightRegular = 60.0;
 
 class _MoltenAcceptButton extends StatelessWidget {
   const _MoltenAcceptButton({
@@ -206,7 +190,8 @@ class _MoltenAcceptButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final height = compact ? 48.0 : 60.0;
+    final height =
+        compact ? _kPromptButtonHeightCompact : _kPromptButtonHeightRegular;
     return GestureDetector(
       onTapDown: busy ? null : (_) => onDown(),
       onTapCancel: busy ? null : onCancel,
@@ -283,7 +268,8 @@ class _StoneSkipButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final height = compact ? 48.0 : 60.0;
+    final height =
+        compact ? _kPromptButtonHeightCompact : _kPromptButtonHeightRegular;
     return GestureDetector(
       onTapDown: busy ? null : (_) => onDown(),
       onTapCancel: busy ? null : onCancel,

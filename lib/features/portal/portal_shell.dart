@@ -406,8 +406,13 @@ class _PortalShellState extends State<PortalShell>
       SystemUiMode.manual,
       overlays: SystemUiOverlay.values,
     );
-    SystemChrome.setPreferredOrientations(<DeviceOrientation>[
+    // Leave the orientation lock open — the next screen (tempest, ignition
+    // restart, or arena) sets its own preferred orientations in initState.
+    SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
       DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
     ]);
     super.dispose();
   }

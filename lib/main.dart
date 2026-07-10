@@ -11,8 +11,6 @@
 //   4. All service singletons are created here and injected downward via
 //      constructor arguments — nothing uses a global service locator.
 
-import 'dart:async';
-
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -65,9 +63,13 @@ Future<void> main() async {
   final attribution = AttributionPipeline();
   final configBeacon = ConfigBeacon(vault);
   final pushHub = PushHub(vault);
-  // Kick off push init early — the FCM token is likely ready by the time the
-  // splash router has to compose the config request body.
-  unawaited(pushHub.awaken());
+  // Await instead of fire-and-forget: `getInitialMessage()` inside awaken()
+  // needs to run to completion so a cold-tap URL is persisted in the vault
+  // before IgnitionStage plucks it via `pluckFreshTapLink`. The earlier
+  // fire-and-forget path could race and land the user on the wrong route
+  // (and could later surface a "no handler" error when the tap arrived
+  // while the app was already in arena mode).
+  await pushHub.awaken();
 
   runApp(FlameSurgeRoot(
     vault: vault,
