@@ -1,29 +1,33 @@
+// Main menu for the white "arena" experience. Reachable from the splash
+// router when the backend refuses to deliver a portal URL.
+
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import 'game_screen.dart';
-import 'web_page.dart';
+import '../../core/vault.dart';
+import '../../env/facade.dart';
+import '../../features/legal/legal_reader.dart';
+import 'volcanic_puzzle_screen.dart';
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+class GameMenuScreen extends StatefulWidget {
+  const GameMenuScreen({super.key, required this.vault});
+
+  final Vault vault;
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<GameMenuScreen> createState() => _GameMenuScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  int _bestScore = 0;
+class _GameMenuScreenState extends State<GameMenuScreen> {
+  late int _best = widget.vault.readBestScore();
 
-  @override
-  void initState() {
-    super.initState();
-    _loadBest();
-  }
-
-  Future<void> _loadBest() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
+  Future<void> _openPuzzle() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => VolcanicPuzzleScreen(vault: widget.vault),
+      ),
+    );
     if (!mounted) return;
-    setState(() => _bestScore = prefs.getInt('best_score') ?? 0);
+    setState(() => _best = widget.vault.readBestScore());
   }
 
   @override
@@ -45,7 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     flex: 5,
                     child: Center(
                       child: Hero(
-                        tag: 'game_logo',
+                        tag: 'flame_surge_logo',
                         child: Image.asset(
                           'assets/Game_Name.webp',
                           fit: BoxFit.contain,
@@ -53,49 +57,40 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                  _BestScoreCard(best: _bestScore),
+                  _BestScoreBanner(best: _best),
                   const SizedBox(height: 16),
                   Expanded(
                     flex: 4,
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.start,
                       children: <Widget>[
-                        _MenuButton(
+                        _EmberButton(
                           label: 'PLAY',
                           icon: Icons.play_arrow_rounded,
                           primary: true,
-                          onTap: () async {
-                            await Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => const GameScreen(),
-                              ),
-                            );
-                            _loadBest();
-                          },
+                          onTap: _openPuzzle,
                         ),
                         const SizedBox(height: 14),
-                        _MenuButton(
+                        _EmberButton(
                           label: 'PRIVACY POLICY',
                           icon: Icons.privacy_tip_outlined,
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
-                              builder: (_) => const WebPageScreen(
-                                title: 'Privacy Policy',
-                                url:
-                                    'https://flamesuurge.com/privacy-policy.html',
+                              builder: (_) => const LegalReader(
+                                heading: 'Privacy Policy',
+                                url: Facade.privacyPolicyUrl,
                               ),
                             ),
                           ),
                         ),
                         const SizedBox(height: 14),
-                        _MenuButton(
+                        _EmberButton(
                           label: 'SUPPORT',
                           icon: Icons.support_agent_rounded,
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
-                              builder: (_) => const WebPageScreen(
-                                title: 'Support',
-                                url: 'https://flamesuurge.com/support.html',
+                              builder: (_) => const LegalReader(
+                                heading: 'Support',
+                                url: Facade.supportUrl,
                               ),
                             ),
                           ),
@@ -125,8 +120,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _BestScoreCard extends StatelessWidget {
-  const _BestScoreCard({required this.best});
+class _BestScoreBanner extends StatelessWidget {
+  const _BestScoreBanner({required this.best});
 
   final int best;
 
@@ -179,8 +174,8 @@ class _BestScoreCard extends StatelessWidget {
   }
 }
 
-class _MenuButton extends StatefulWidget {
-  const _MenuButton({
+class _EmberButton extends StatefulWidget {
+  const _EmberButton({
     required this.label,
     required this.icon,
     required this.onTap,
@@ -193,18 +188,17 @@ class _MenuButton extends StatefulWidget {
   final bool primary;
 
   @override
-  State<_MenuButton> createState() => _MenuButtonState();
+  State<_EmberButton> createState() => _EmberButtonState();
 }
 
-class _MenuButtonState extends State<_MenuButton> {
+class _EmberButtonState extends State<_EmberButton> {
   bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
-    final List<Color> colors = widget.primary
+    final colors = widget.primary
         ? const <Color>[Color(0xFFFFB020), Color(0xFFFF5A00), Color(0xFFB71C1C)]
         : const <Color>[Color(0xFF3A1A0F), Color(0xFF241009)];
-
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
       onTapCancel: () => setState(() => _pressed = false),

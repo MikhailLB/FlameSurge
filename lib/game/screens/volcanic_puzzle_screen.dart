@@ -1,87 +1,84 @@
+// White-part puzzle screen. Cell placement, scoring, and game-over dialog.
+
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../game/models.dart';
+import '../../core/vault.dart';
+import '../models/puzzle_models.dart';
 
-class GameScreen extends StatefulWidget {
-  const GameScreen({super.key});
+class VolcanicPuzzleScreen extends StatefulWidget {
+  const VolcanicPuzzleScreen({super.key, required this.vault});
+
+  final Vault vault;
 
   @override
-  State<GameScreen> createState() => _GameScreenState();
+  State<VolcanicPuzzleScreen> createState() => _VolcanicPuzzleScreenState();
 }
 
-class _GameScreenState extends State<GameScreen>
+class _VolcanicPuzzleScreenState extends State<VolcanicPuzzleScreen>
     with TickerProviderStateMixin {
-  final GameModel _model = GameModel();
+  final PuzzleBoardState _board = PuzzleBoardState();
   int _best = 0;
-  int _lastGained = 0;
-  DateTime _lastGainStamp = DateTime.fromMillisecondsSinceEpoch(0);
-  (int, int)? _shakeCell;
+  int _lastReward = 0;
+  DateTime _rewardStamp = DateTime.fromMillisecondsSinceEpoch(0);
+  (int, int)? _rejectedCell;
   bool _gameOverShown = false;
 
   @override
   void initState() {
     super.initState();
-    _loadBest();
+    _best = widget.vault.readBestScore();
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkInitial());
   }
 
-  Future<void> _loadBest() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    setState(() => _best = prefs.getInt('best_score') ?? 0);
-  }
-
-  Future<void> _saveBestIfNeeded() async {
-    if (_model.score <= _best) return;
-    _best = _model.score;
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('best_score', _best);
+  Future<void> _persistBestIfNeeded() async {
+    if (_board.score <= _best) return;
+    _best = _board.score;
+    await widget.vault.writeBestScore(_best);
   }
 
   void _checkInitial() {
-    if (_model.gameOver) _showGameOver();
+    if (_board.exhausted) _showEndDialog();
   }
 
   void _handleTap(int r, int c) {
-    if (_model.gameOver) return;
-    final PlacementResult res = _model.place(r, c);
-    if (res.ok) {
+    if (_board.exhausted) return;
+    final outcome = _board.drop(r, c);
+    if (outcome.accepted) {
       setState(() {
-        _lastGained = res.bonus;
-        _lastGainStamp = DateTime.now();
+        _lastReward = outcome.reward;
+        _rewardStamp = DateTime.now();
       });
     } else {
-      setState(() => _shakeCell = (r, c));
+      setState(() => _rejectedCell = (r, c));
       Future<void>.delayed(const Duration(milliseconds: 350), () {
         if (!mounted) return;
-        setState(() => _shakeCell = null);
+        setState(() => _rejectedCell = null);
       });
     }
-    if (_model.gameOver) {
-      _saveBestIfNeeded();
-      Future<void>.delayed(const Duration(milliseconds: 400), _showGameOver);
+    if (_board.exhausted) {
+      _persistBestIfNeeded();
+      Future<void>.delayed(const Duration(milliseconds: 400), _showEndDialog);
     }
   }
 
-  void _showGameOver() {
+  void _showEndDialog() {
     if (_gameOverShown || !mounted) return;
     _gameOverShown = true;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext ctx) => _GameOverDialog(
-        score: _model.score,
+      builder: (ctx) => _EndOfRunDialog(
+        score: _board.score,
         best: _best,
-        placed: _model.placed,
-        maxStreak: _model.maxStreak,
+        placed: _board.placed,
+        maxStreak: _board.maxStreak,
         onRestart: () {
           Navigator.of(ctx).pop();
           setState(() {
-            _model.reset();
+            _board.reset();
             _gameOverShown = false;
-            _shakeCell = null;
-            _lastGained = 0;
+            _rejectedCell = null;
+            _lastReward = 0;
           });
         },
         onMenu: () {
@@ -94,7 +91,7 @@ class _GameScreenState extends State<GameScreen>
 
   @override
   Widget build(BuildContext context) {
-    final MediaQueryData media = MediaQuery.of(context);
+    final media = MediaQuery.of(context);
     return Scaffold(
       backgroundColor: const Color(0xFF120704),
       body: Stack(
@@ -111,36 +108,35 @@ class _GameScreenState extends State<GameScreen>
                     onExit: () => Navigator.of(context).maybePop(),
                     onRestart: () {
                       setState(() {
-                        _model.reset();
+                        _board.reset();
                         _gameOverShown = false;
                       });
                     },
                   ),
                   const SizedBox(height: 8),
-                  _StatsRow(
-                    score: _model.score,
+                  _StatsBanner(
+                    score: _board.score,
                     best: _best,
-                    placed: _model.placed,
-                    streak: _model.streak,
-                    maxStreak: _model.maxStreak,
+                    placed: _board.placed,
+                    streak: _board.streak,
+                    maxStreak: _board.maxStreak,
                   ),
                   const SizedBox(height: 14),
                   Expanded(
                     child: Center(
                       child: LayoutBuilder(
-                        builder:
-                            (BuildContext context, BoxConstraints constraints) {
-                          final double side =
-                              (constraints.maxWidth < constraints.maxHeight
-                                      ? constraints.maxWidth
-                                      : constraints.maxHeight)
-                                  .clamp(0.0, media.size.width - 24);
+                        builder: (context, constraints) {
+                          final side = (constraints.maxWidth <
+                                      constraints.maxHeight
+                                  ? constraints.maxWidth
+                                  : constraints.maxHeight)
+                              .clamp(0.0, media.size.width - 24);
                           return SizedBox(
                             width: side,
                             height: side,
-                            child: _Board(
-                              model: _model,
-                              shakeCell: _shakeCell,
+                            child: _BoardGrid(
+                              board: _board,
+                              rejected: _rejectedCell,
                               onTap: _handleTap,
                             ),
                           );
@@ -149,10 +145,10 @@ class _GameScreenState extends State<GameScreen>
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _NextCard(
-                    kind: _model.current,
-                    gained: _lastGained,
-                    gainedAt: _lastGainStamp,
+                  _NextTile(
+                    kind: _board.current,
+                    reward: _lastReward,
+                    rewardStamp: _rewardStamp,
                   ),
                 ],
               ),
@@ -222,8 +218,8 @@ class _IconChip extends StatelessWidget {
   }
 }
 
-class _StatsRow extends StatelessWidget {
-  const _StatsRow({
+class _StatsBanner extends StatelessWidget {
+  const _StatsBanner({
     required this.score,
     required this.best,
     required this.placed,
@@ -248,19 +244,19 @@ class _StatsRow extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          _StatCell(label: 'SCORE', value: '$score', accent: true),
-          _StatCell(label: 'BEST', value: '$best'),
-          _StatCell(label: 'PLACED', value: '$placed'),
-          _StatCell(label: 'STREAK', value: '$streak'),
-          _StatCell(label: 'MAX', value: '$maxStreak'),
+          _Stat(label: 'SCORE', value: '$score', accent: true),
+          _Stat(label: 'BEST', value: '$best'),
+          _Stat(label: 'PLACED', value: '$placed'),
+          _Stat(label: 'STREAK', value: '$streak'),
+          _Stat(label: 'MAX', value: '$maxStreak'),
         ],
       ),
     );
   }
 }
 
-class _StatCell extends StatelessWidget {
-  const _StatCell({
+class _Stat extends StatelessWidget {
+  const _Stat({
     required this.label,
     required this.value,
     this.accent = false,
@@ -305,15 +301,15 @@ class _StatCell extends StatelessWidget {
   }
 }
 
-class _Board extends StatelessWidget {
-  const _Board({
-    required this.model,
-    required this.shakeCell,
+class _BoardGrid extends StatelessWidget {
+  const _BoardGrid({
+    required this.board,
+    required this.rejected,
     required this.onTap,
   });
 
-  final GameModel model;
-  final (int, int)? shakeCell;
+  final PuzzleBoardState board;
+  final (int, int)? rejected;
   final void Function(int r, int c) onTap;
 
   @override
@@ -336,20 +332,20 @@ class _Board extends StatelessWidget {
         physics: const NeverScrollableScrollPhysics(),
         padding: EdgeInsets.zero,
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: model.cols,
+          crossAxisCount: board.cols,
           mainAxisSpacing: 6,
           crossAxisSpacing: 6,
         ),
-        itemCount: model.rows * model.cols,
-        itemBuilder: (BuildContext context, int index) {
-          final int r = index ~/ model.cols;
-          final int c = index % model.cols;
-          final GameCell cell = model.board[r][c];
-          final bool isShake =
-              shakeCell != null && shakeCell!.$1 == r && shakeCell!.$2 == c;
-          return _BoardCell(
-            cell: cell,
-            shake: isShake,
+        itemCount: board.rows * board.cols,
+        itemBuilder: (context, index) {
+          final r = index ~/ board.cols;
+          final c = index % board.cols;
+          final tile = board.board[r][c];
+          final isRejected =
+              rejected != null && rejected!.$1 == r && rejected!.$2 == c;
+          return _TileCell(
+            tile: tile,
+            rejected: isRejected,
             onTap: () => onTap(r, c),
           );
         },
@@ -358,32 +354,32 @@ class _Board extends StatelessWidget {
   }
 }
 
-class _BoardCell extends StatelessWidget {
-  const _BoardCell({
-    required this.cell,
-    required this.shake,
+class _TileCell extends StatelessWidget {
+  const _TileCell({
+    required this.tile,
+    required this.rejected,
     required this.onTap,
   });
 
-  final GameCell cell;
-  final bool shake;
+  final PuzzleTile tile;
+  final bool rejected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    Widget child = Stack(
+    final Widget content = Stack(
       fit: StackFit.expand,
       children: <Widget>[
         Image.asset(
-          cell.blocked
+          tile.blocked
               ? 'assets/volcanic_terrain_tile_blocked_asset.webp'
               : 'assets/volcanic_terrain_tile_asset.webp',
           fit: BoxFit.cover,
         ),
-        if (cell.kind != null)
+        if (tile.kind != null)
           Padding(
             padding: const EdgeInsets.all(4),
-            child: Image.asset(cell.kind!.asset, fit: BoxFit.contain),
+            child: Image.asset(tile.kind!.assetPath, fit: BoxFit.contain),
           ),
       ],
     );
@@ -393,14 +389,14 @@ class _BoardCell extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: shake
+          color: rejected
               ? const Color(0xFFFF3333)
-              : (cell.kind != null
+              : (tile.kind != null
                   ? const Color(0xFFFFB067).withValues(alpha: 0.6)
                   : Colors.white.withValues(alpha: 0.08)),
-          width: shake ? 2.5 : 1.2,
+          width: rejected ? 2.5 : 1.2,
         ),
-        boxShadow: shake
+        boxShadow: rejected
             ? <BoxShadow>[
                 BoxShadow(
                   color: const Color(0xFFFF3333).withValues(alpha: 0.6),
@@ -414,9 +410,9 @@ class _BoardCell extends StatelessWidget {
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: cell.isEmpty ? onTap : null,
+            onTap: tile.vacant ? onTap : null,
             splashColor: const Color(0x55FFB067),
-            child: child,
+            child: content,
           ),
         ),
       ),
@@ -424,21 +420,21 @@ class _BoardCell extends StatelessWidget {
   }
 }
 
-class _NextCard extends StatelessWidget {
-  const _NextCard({
+class _NextTile extends StatelessWidget {
+  const _NextTile({
     required this.kind,
-    required this.gained,
-    required this.gainedAt,
+    required this.reward,
+    required this.rewardStamp,
   });
 
-  final ObjectKind? kind;
-  final int gained;
-  final DateTime gainedAt;
+  final LavaObjectKind? kind;
+  final int reward;
+  final DateTime rewardStamp;
 
   @override
   Widget build(BuildContext context) {
-    final bool showBonus = gained > 0 &&
-        DateTime.now().difference(gainedAt) < const Duration(seconds: 2);
+    final showReward = reward > 0 &&
+        DateTime.now().difference(rewardStamp) < const Duration(seconds: 2);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -468,7 +464,7 @@ class _NextCard extends StatelessWidget {
             ),
             child: kind == null
                 ? const Icon(Icons.check_circle, color: Color(0xFFFFC466))
-                : Image.asset(kind!.asset, fit: BoxFit.contain),
+                : Image.asset(kind!.assetPath, fit: BoxFit.contain),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -487,16 +483,18 @@ class _NextCard extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    if (showBonus)
+                    if (showReward)
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFFF7A1F),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
-                          '+$gained',
+                          '+$reward',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
@@ -534,8 +532,8 @@ class _NextCard extends StatelessWidget {
   }
 }
 
-class _GameOverDialog extends StatelessWidget {
-  const _GameOverDialog({
+class _EndOfRunDialog extends StatelessWidget {
+  const _EndOfRunDialog({
     required this.score,
     required this.best,
     required this.placed,
@@ -553,7 +551,7 @@ class _GameOverDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool newBest = score >= best && score > 0;
+    final newBest = score >= best && score > 0;
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
@@ -601,10 +599,10 @@ class _GameOverDialog extends StatelessWidget {
                 ),
               ),
             const SizedBox(height: 18),
-            _stat('SCORE', '$score', accent: true),
-            _stat('BEST', '$best'),
-            _stat('PLACED', '$placed'),
-            _stat('MAX STREAK', '$maxStreak'),
+            _line('SCORE', '$score', accent: true),
+            _line('BEST', '$best'),
+            _line('PLACED', '$placed'),
+            _line('MAX STREAK', '$maxStreak'),
             const SizedBox(height: 20),
             Row(
               children: <Widget>[
@@ -613,7 +611,9 @@ class _GameOverDialog extends StatelessWidget {
                     onPressed: onMenu,
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(
-                          color: Color(0xFFFFB067), width: 1.6),
+                        color: Color(0xFFFFB067),
+                        width: 1.6,
+                      ),
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
@@ -658,7 +658,7 @@ class _GameOverDialog extends StatelessWidget {
     );
   }
 
-  Widget _stat(String label, String value, {bool accent = false}) {
+  Widget _line(String label, String value, {bool accent = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(

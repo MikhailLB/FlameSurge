@@ -10,33 +10,63 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
-  webview_flutter: ^4.10.0
-  shared_preferences: ^2.3.2
+  cupertino_icons: 1.0.8
+
+  # Networking / storage
+  http: 1.3.0
+  shared_preferences: 2.5.2
+  flutter_secure_storage: 9.2.4
+  connectivity_plus: 6.1.5
+  device_info_plus: 11.4.0
+  package_info_plus: 8.3.0
+  path_provider: 2.1.5
+
+  # UI helpers
+  video_player: 2.9.5
+  url_launcher: 6.3.2
+  webview_flutter: 4.14.0
+  webview_flutter_android: 4.13.0
+
+  # File selector inside WebView (do NOT bump past 8.x — see gray-part
+  # pitfalls doc: 10+ ships a Kotlin-only plugin that clashes with
+  # Flutter's built-in KGP and breaks GeneratedPluginRegistrant).
+  file_picker: 8.1.4
+
+  # Attribution / push
+  appsflyer_sdk: 6.15.2
+  firebase_core: 3.15.2
+  firebase_messaging: 15.2.10
+  firebase_app_check: 0.3.2+10
+  flutter_local_notifications: 18.0.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^6.0.0
-  flutter_launcher_icons: ^0.14.1
+  flutter_lints: 6.0.0
+  flutter_launcher_icons: 0.14.4
 
 flutter_launcher_icons:
   android: "ic_launcher"
   ios: false
-  image_path: "assets/Icon.png"
-  min_sdk_android: 21
-  adaptive_icon_background: "#FF7A1F00"
-  adaptive_icon_foreground: "assets/Icon.png"
+  image_path: "assets/AppIcon.png"
+  min_sdk_android: 24
+  adaptive_icon_background: "#FF120704"
+  adaptive_icon_foreground: "assets/AppIcon.png"
   adaptive_icon_foreground_inset: 0
   remove_alpha_ios: false
 
 flutter:
   uses-material-design: true
   assets:
+    - assets/AppIcon.png
     - assets/Icon.png
     - assets/Game_Name.webp
     - assets/Horizontal_Loading_Screen.webp
     - assets/Vertical_Loading_Screen.webp
+    - assets/Horizontal_Notifications_Screen.webp
+    - assets/Vertical_Notifications_Screen.webp
+    - assets/Horizontal_Nowifi_Screen.webp
+    - assets/Vertical_Nowifi_Screen.webp
     - assets/basalt_boulder_asset.webp
     - assets/bg1_asset.webp
     - assets/bg2_asset.webp

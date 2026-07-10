@@ -1,0 +1,21 @@
+// Encoded config endpoint host + path.
+// Regenerate via `dart run tool/encode_secrets.dart` after touching the seed.
+
+import '../utils/mask.dart';
+
+const List<int> _beaconHost = <int>[
+  0xb3, 0x8f, 0xd7, 0xb9, 0x7d, 0x88, 0x1e, 0xee,
+  0xcb, 0x8a, 0xd8, 0x3a, 0x67, 0xe5, 0x66, 0x73,
+  0xa9, 0x9c, 0xc6, 0xe7, 0x6d, 0xdd, 0x5c,
+];
+
+const List<int> _beaconPath = <int>[
+  0xf4, 0x98, 0xcc, 0xa7, 0x68, 0xdb, 0x56, 0xef,
+  0xdd, 0x8e, 0xc9,
+];
+
+/// Decoded full config endpoint URL. Empty when either segment is empty.
+String unmaskBeaconUri() {
+  if (_beaconHost.isEmpty || _beaconPath.isEmpty) return '';
+  return unmask(_beaconHost) + unmask(_beaconPath);
+}
