@@ -17,6 +17,14 @@
 -keep class com.google.android.play.core.** { *; }
 -dontwarn com.google.android.play.core.**
 
+# --- Play Install Referrer (AppsFlyer utm_source chain) ---
+-keep class com.android.installreferrer.** { *; }
+-dontwarn com.android.installreferrer.**
+
+# --- GAID (com.google.android.gms:play-services-ads-identifier) ---
+-keep class com.google.android.gms.ads.identifier.** { *; }
+-dontwarn com.google.android.gms.ads.identifier.**
+
 # --- Parcelable ---
 -keep class * implements android.os.Parcelable {
     public static final android.os.Parcelable$Creator *;

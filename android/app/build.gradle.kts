@@ -90,6 +90,17 @@ kotlin {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+
+    // Pinned explicitly (rather than relying on transitive resolution from
+    // appsflyer_sdk) so `AdvertisingIdClient` is always on the classpath.
+    // Without it, GAID retrieval throws `ClassNotFoundException` on some
+    // OEM ROMs (Realme UI, MIUI, ColorOS) which collapses AppsFlyer's
+    // fingerprint match and misclassifies non-organic installs as Organic.
+    implementation("com.google.android.gms:play-services-ads-identifier:18.1.0")
+    // Play Install Referrer AIDL client. AppsFlyer's Android SDK also brings
+    // this in, but pinning here avoids version-skew surprises during
+    // dependency resolution on newer AGP releases.
+    implementation("com.android.installreferrer:installreferrer:2.2")
 }
 
 flutter {

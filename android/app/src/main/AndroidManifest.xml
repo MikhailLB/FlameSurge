@@ -6,6 +6,15 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE"/>
+    <!--
+        Required on Android 13+ (API 33+) for Google Play Services to hand us a
+        real GAID. Without this permission AdvertisingIdClient returns a zeroed
+        ID on Samsung / Xiaomi / Pixel devices running Android 13/14/15, which
+        collapses AppsFlyer's fingerprint match and every non-organic OneLink
+        install is misclassified as "Organic" (see debug log
+        `gaidError: 0: ClassNotFoundException`).
+    -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
 
     <application
         android:label="Flame Surge"
@@ -24,7 +33,6 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:alwaysRetainTaskState="true"
-            android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
@@ -63,6 +71,16 @@
     </application>
 
     <queries>
+        <!--
+            Play Install Referrer library binds to the Play Store service via
+            AIDL. On Android 11+ (targetSdk >= 30) package visibility is gated
+            by <queries>; without this explicit declaration the referrer bind
+            silently fails on Samsung/Xiaomi/OPPO/Vivo devices, AppsFlyer
+            never receives the `utm_source` chain, and OneLink installs
+            degrade to Organic.
+        -->
+        <package android:name="com.android.vending"/>
+
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
