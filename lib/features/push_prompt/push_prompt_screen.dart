@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/flame_insight.dart';
 import '../../core/net_sensor.dart';
 import '../../core/push_hub.dart';
 import '../../core/vault.dart';
@@ -37,6 +38,7 @@ class _PushPromptScreenState extends State<PushPromptScreen> {
   @override
   void initState() {
     super.initState();
+    FlameInsight.enterScreen('push_invite');
     // Prompt supports both orientations — matches the two artwork variants.
     SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
       DeviceOrientation.portraitUp,
@@ -56,7 +58,13 @@ class _PushPromptScreenState extends State<PushPromptScreen> {
   Future<void> _onAccept() async {
     if (_busy) return;
     setState(() => _busy = true);
+    FlameInsight.emit('push_invite_accept');
     final granted = await widget.pushHub.requestOsPermission();
+    FlameInsight.writeTag(
+      'notif_permission',
+      granted ? 'granted' : 'denied',
+    );
+    FlameInsight.emit(granted ? 'push_granted' : 'push_denied');
     if (!granted) {
       await _writeSkipCooldown();
     }
@@ -67,6 +75,8 @@ class _PushPromptScreenState extends State<PushPromptScreen> {
   Future<void> _onSkip() async {
     if (_busy) return;
     setState(() => _busy = true);
+    FlameInsight.emit('push_invite_skip');
+    FlameInsight.writeTag('notif_permission', 'skipped');
     await _writeSkipCooldown();
     if (!mounted) return;
     await _navigateToPortal();

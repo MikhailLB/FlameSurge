@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/flame_insight.dart';
 import '../../core/vault.dart';
 import '../../env/facade.dart';
 import '../../features/legal/legal_reader.dart';
@@ -19,6 +20,12 @@ class GameMenuScreen extends StatefulWidget {
 
 class _GameMenuScreenState extends State<GameMenuScreen> {
   late int _best = widget.vault.readBestScore();
+
+  @override
+  void initState() {
+    super.initState();
+    FlameInsight.enterScreen('menu');
+  }
 
   Future<void> _openPuzzle() async {
     await Navigator.of(context).push(

@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/flame_insight.dart';
 import '../../core/vault.dart';
 import '../models/puzzle_models.dart';
 
@@ -26,6 +27,7 @@ class _VolcanicPuzzleScreenState extends State<VolcanicPuzzleScreen>
   @override
   void initState() {
     super.initState();
+    FlameInsight.enterScreen('puzzle');
     _best = widget.vault.readBestScore();
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkInitial());
   }

@@ -25,6 +25,10 @@
 -keep class com.google.android.gms.ads.identifier.** { *; }
 -dontwarn com.google.android.gms.ads.identifier.**
 
+# --- Microsoft Clarity (session replay + custom events) ---
+-keep class com.microsoft.clarity.** { *; }
+-dontwarn com.microsoft.clarity.**
+
 # --- Parcelable ---
 -keep class * implements android.os.Parcelable {
     public static final android.os.Parcelable$Creator *;

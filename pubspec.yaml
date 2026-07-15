@@ -2,7 +2,7 @@ name: flame_surge
 description: "Flame Surge - a volcanic placement puzzle."
 publish_to: 'none'
 
-version: 1.0.1+3
+version: 1.0.1+4
 
 environment:
   sdk: ^3.12.2
@@ -45,6 +45,11 @@ dependencies:
   firebase_messaging: 15.2.10
   firebase_app_check: 0.3.2+10
   flutter_local_notifications: 18.0.1
+
+  # Microsoft Clarity session replay + custom-event funnel. Project id lives
+  # in `lib/env/insight_env.dart` and is unique per Play application (see
+  # gray_flow clarity_analytics.mdc §7 – never reuse the id across apps).
+  clarity_flutter: ^1.9.0
 
 dev_dependencies:
   flutter_test:

@@ -8,6 +8,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/flame_insight.dart';
+
 class TempestScreen extends StatefulWidget {
   const TempestScreen({super.key, required this.retryBuilder});
 
@@ -26,6 +28,7 @@ class _TempestScreenState extends State<TempestScreen>
   @override
   void initState() {
     super.initState();
+    FlameInsight.enterScreen('offline');
     // Both the vertical and horizontal artwork exist — allow the device to
     // rotate freely on this surface even if we were locked to portrait by
     // the arena or the previous screen's dispose().
@@ -51,6 +54,7 @@ class _TempestScreenState extends State<TempestScreen>
   Future<void> _retry() async {
     if (_busy) return;
     setState(() => _busy = true);
+    FlameInsight.emit('offline_retry');
     await Future<void>.delayed(const Duration(milliseconds: 400));
     if (!mounted) return;
     Navigator.of(context).pushReplacement(

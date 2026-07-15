@@ -17,6 +17,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../core/device_agent.dart';
+import '../../core/flame_insight.dart';
 import '../../core/net_sensor.dart';
 import '../../core/push_hub.dart';
 import '../../core/vault.dart';
@@ -66,10 +67,20 @@ class _PortalShellState extends State<PortalShell>
   // instead of nulling it out (pitfalls §12).
   PushLinkSink? _previousHandler;
 
+  // Clarity funnel state. `_offerReached` latches to true on the first
+  // successful main-frame `onPageFinished`; `_pageHadError` is per-navigation
+  // and prevents a redirect-loop / SSL failure from being counted as a
+  // reached offer just because the callback happened to fire.
+  bool _offerReached = false;
+  bool _pageHadError = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    FlameInsight.enterScreen('web');
+    FlameInsight.emit('web_open');
 
     SystemChrome.setPreferredOrientations(<DeviceOrientation>[
       DeviceOrientation.portraitUp,
@@ -107,7 +118,7 @@ class _PortalShellState extends State<PortalShell>
   }
 
   WebViewController _buildController() {
-    return WebViewController()
+    final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent(deviceAgent.userAgent)
       ..setBackgroundColor(Colors.black)
@@ -115,12 +126,13 @@ class _PortalShellState extends State<PortalShell>
       ..setNavigationDelegate(NavigationDelegate(
         onPageStarted: (_) {
           if (!mounted) return;
+          _pageHadError = false;
           setState(() {
             _errored = false;
             _isLoading = true;
           });
         },
-        onPageFinished: (_) {
+        onPageFinished: (url) {
           if (!mounted) return;
           // If an error latched _errored=true, keep the spinner cover up so
           // the OS error page never shows through (pitfalls §4).
@@ -129,11 +141,21 @@ class _PortalShellState extends State<PortalShell>
           _redirectRetries = 0;
           _injectRimGuards();
           _injectKeyboardShim();
+          _installInsightProbe();
+          _trackWebPage(url);
         },
         onWebResourceError: _handleResourceError,
         onNavigationRequest: _decideNavigation,
         onHttpError: (_) {},
       ));
+    // JS bridge for the in-page funnel probe (SPA route changes,
+    // deposit/register/login clicks, auth submits). Named uniquely so
+    // partner sites cannot silently talk to another gray-flow app's bridge.
+    controller.addJavaScriptChannel(
+      'FlameInsightPipe',
+      onMessageReceived: (msg) => _onWebSignal(msg.message),
+    );
+    return controller;
   }
 
   void _configureAndroid() {
@@ -159,6 +181,8 @@ class _PortalShellState extends State<PortalShell>
       if (request.isMainFrame) _lastMainFrameUrl = request.url;
       return NavigationDecision.navigate;
     }
+    FlameInsight.emit('web_external');
+    FlameInsight.writeTag('web_external_scheme', uri.scheme);
     unawaited(_launchExternal(uri));
     return NavigationDecision.prevent;
   }
@@ -189,6 +213,9 @@ class _PortalShellState extends State<PortalShell>
     // `isForMainFrame` returns null on some vendor builds — only bail when it
     // is *explicitly* false (pitfalls §4).
     if (err.isForMainFrame == false) return;
+
+    _pageHadError = true;
+    _reportWebError(err);
 
     // Cover the WebView while we decide what to do.
     if (mounted) {
@@ -287,7 +314,201 @@ class _PortalShellState extends State<PortalShell>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _applySystemUi();
+    if (state == AppLifecycleState.resumed) {
+      _applySystemUi();
+      FlameInsight.emit('web_foreground');
+    } else if (state == AppLifecycleState.paused) {
+      // A `paused` transition inside the WebView is the clearest drop-off
+      // marker — combine with the `last_screen=web` tag on the dashboard.
+      FlameInsight.emit('web_background');
+    }
+  }
+
+  // --------------------------------------------------------------------- //
+  // Clarity funnel — page/error/probe                                     //
+  // --------------------------------------------------------------------- //
+
+  void _trackWebPage(String url) {
+    final uri = Uri.tryParse(url);
+    final label = uri == null ? url : '${uri.host}${uri.path}';
+    FlameInsight.labelScreen('web:$label');
+    FlameInsight.emit('web_page');
+    FlameInsight.writeTag('web_last_url', url);
+
+    if (!_offerReached && !_pageHadError) {
+      _offerReached = true;
+      FlameInsight.emit('web_offer_reached');
+      FlameInsight.writeTag('offer_reached', 'true');
+      if (uri?.host.isNotEmpty ?? false) {
+        FlameInsight.writeTag('offer_host', uri!.host);
+      }
+    }
+    if (_depositRx.hasMatch(url)) {
+      FlameInsight.emit('web_cashier_page');
+      FlameInsight.writeTag('reached_cashier', 'true');
+    }
+    _trackAuthPage(url);
+  }
+
+  void _trackAuthPage(String url) {
+    if (_registerRx.hasMatch(url)) {
+      FlameInsight.emit('web_register_page');
+      FlameInsight.writeTag('reached_register', 'true');
+    } else if (_loginRx.hasMatch(url)) {
+      FlameInsight.emit('web_login_page');
+      FlameInsight.writeTag('reached_login', 'true');
+    }
+  }
+
+  void _reportWebError(WebResourceError err) {
+    final reason = _classifyWebError(err);
+    final failed = _lastMainFrameUrl ?? widget.entryUrl;
+    final host = Uri.tryParse(failed)?.host ?? '';
+    FlameInsight.emit('web_error');
+    FlameInsight.writeTag('web_error_reason', reason);
+    FlameInsight.writeTag(
+      'web_last_error',
+      '${err.errorCode}:${err.description}',
+    );
+    if (host.isNotEmpty) FlameInsight.writeTag('web_error_host', host);
+    if (!_offerReached) {
+      FlameInsight.emit('web_offer_unreachable');
+      FlameInsight.writeTag('offer_reached', 'false');
+      FlameInsight.writeTag('offer_unreachable_reason', reason);
+    } else {
+      FlameInsight.emit('web_error_after_load');
+    }
+  }
+
+  static String _classifyWebError(WebResourceError err) {
+    final d = err.description.toLowerCase();
+    final c = err.errorCode;
+    if (d.contains('connection_refused') ||
+        d.contains('connection refused')) {
+      return 'connection_refused';
+    }
+    if (d.contains('too_many_redirects') ||
+        d.contains('too many redirects')) {
+      return 'redirect_loop';
+    }
+    if (d.contains('name_not_resolved') ||
+        d.contains('address_unreachable') ||
+        d.contains('unknownhost') ||
+        c == -2) {
+      return 'dns_unresolved';
+    }
+    if (d.contains('timed out') || d.contains('timeout') || c == -8) {
+      return 'timeout';
+    }
+    if (d.contains('internet_disconnected') ||
+        d.contains('network_changed') ||
+        c == -6) {
+      return 'no_network';
+    }
+    if (d.contains('connection_reset')) return 'connection_reset';
+    if (d.contains('connection_closed') || d.contains('empty_response')) {
+      return 'connection_closed';
+    }
+    if (d.contains('ssl') || d.contains('cert') || c == -11) {
+      return 'ssl_error';
+    }
+    if (d.contains('blocked')) return 'blocked';
+    return 'other';
+  }
+
+  static final RegExp _depositRx = RegExp(
+    r'(deposit|cashier|top.?up|replenish|payment|checkout|wallet|пополн|депозит|касс|оплат|внести|платеж)',
+    caseSensitive: false,
+  );
+  static final RegExp _registerRx = RegExp(
+    r'(sign.?up|regist|create.?account|onboarding|регистрац|зарегистр)',
+    caseSensitive: false,
+  );
+  static final RegExp _loginRx = RegExp(
+    r'(sign.?in|log.?in|log.?on|/auth\b|authoriz|войти|вход|авториз)',
+    caseSensitive: false,
+  );
+
+  void _installInsightProbe() {
+    _web.runJavaScript(r'''
+(function(){
+  if (window.__flameInsightProbe) return; window.__flameInsightProbe = true;
+  function send(t){ try { FlameInsightPipe.postMessage(t); } catch(e){} }
+  var DEP=/(deposit|cashier|top.?up|add funds|replenish|payment|pay now|checkout|withdraw|пополн|депозит|касс|оплат|внести|вывод|платеж)/i;
+  var REG=/(sign.?up|regist|create.?account|регистрац|зарегистр)/i;
+  var LOG=/(sign.?in|log.?in|log.?on|войти|вход|авториз)/i;
+  var lastPath='';
+  function reportPath(){ var p=location.pathname+location.search; if(p!==lastPath){ lastPath=p; send('path:'+p);} }
+  reportPath();
+  ['pushState','replaceState'].forEach(function(fn){ var o=history[fn]; history[fn]=function(){ var r=o.apply(this,arguments); setTimeout(reportPath,60); return r; }; });
+  window.addEventListener('popstate',function(){ setTimeout(reportPath,60); });
+  document.addEventListener('click',function(e){
+    try{ var el=e.target;
+      for(var i=0;i<4&&el;i++){
+        var t=((el.innerText||el.value||(el.getAttribute&&el.getAttribute('aria-label'))||'')+'').trim();
+        if(t){ if(DEP.test(t)){send('deposit_click:'+t.slice(0,60));return;}
+               if(REG.test(t)){send('register_click:'+t.slice(0,60));return;}
+               if(LOG.test(t)){send('login_click:'+t.slice(0,60));return;} }
+        el=el.parentElement;
+      }
+    }catch(x){}
+  },true);
+  document.addEventListener('submit',function(e){
+    try{ var f=e.target;
+      var pw=f.querySelectorAll?f.querySelectorAll('input[type="password"]'):[];
+      var blob=((f.innerText||'')+' '+(f.getAttribute('action')||'')+' '+(f.className||''));
+      var confirm=f.querySelector&&(f.querySelector('input[name*="confirm" i]')||f.querySelector('input[name*="repeat" i]'));
+      if(pw&&pw.length>=2){send('auth_submit:register');return;}
+      if(pw&&pw.length===1){ send('auth_submit:'+((confirm||REG.test(blob))?'register':'login')); return; }
+      if(REG.test(blob)){send('auth_submit:register');return;}
+      if(LOG.test(blob)){send('auth_submit:login');return;}
+      send('form_submit');
+    }catch(x){ send('form_submit'); }
+  },true);
+})();
+''');
+  }
+
+  void _onWebSignal(String raw) {
+    final i = raw.indexOf(':');
+    final type = i < 0 ? raw : raw.substring(0, i);
+    final data = i < 0 ? '' : raw.substring(i + 1);
+    switch (type) {
+      case 'path':
+        FlameInsight.emit('web_spa_route');
+        FlameInsight.writeTag('web_last_path', data);
+        if (_depositRx.hasMatch(data)) {
+          FlameInsight.emit('web_cashier_page');
+          FlameInsight.writeTag('reached_cashier', 'true');
+        }
+        _trackAuthPage(data);
+        break;
+      case 'deposit_click':
+        FlameInsight.emit('web_deposit_click');
+        FlameInsight.writeTag('deposit_intent', 'true');
+        if (data.isNotEmpty) FlameInsight.writeTag('deposit_label', data);
+        break;
+      case 'register_click':
+        FlameInsight.emit('web_register_click');
+        FlameInsight.writeTag('register_intent', 'true');
+        break;
+      case 'login_click':
+        FlameInsight.emit('web_login_click');
+        FlameInsight.writeTag('login_intent', 'true');
+        break;
+      case 'auth_submit':
+        if (data == 'register') {
+          FlameInsight.emit('web_register_submit');
+          FlameInsight.writeTag('attempted_register', 'true');
+        } else {
+          FlameInsight.emit('web_login_submit');
+          FlameInsight.writeTag('attempted_login', 'true');
+        }
+        break;
+      case 'form_submit':
+        FlameInsight.emit('web_form_submit');
+        break;
+    }
   }
 
   // --------------------------------------------------------------------- //

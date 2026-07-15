@@ -11,6 +11,7 @@
 //   4. All service singletons are created here and injected downward via
 //      constructor arguments — nothing uses a global service locator.
 
+import 'package:clarity_flutter/clarity_flutter.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -21,6 +22,7 @@ import 'boot/flame_surge_root.dart';
 import 'core/attribution_pipeline.dart';
 import 'core/config_beacon.dart';
 import 'core/device_agent.dart';
+import 'core/flame_insight.dart';
 import 'core/net_sensor.dart';
 import 'core/push_hub.dart';
 import 'core/vault.dart';
@@ -71,11 +73,18 @@ Future<void> main() async {
   // while the app was already in arena mode).
   await pushHub.awaken();
 
-  runApp(FlameSurgeRoot(
-    vault: vault,
-    netSensor: netSensor,
-    attribution: attribution,
-    configBeacon: configBeacon,
-    pushHub: pushHub,
+  // Wrap the root with Microsoft Clarity so session replay + custom funnel
+  // events are captured from the very first frame of the loading screen.
+  // Every Clarity call is routed through FlameInsight and is guarded — a
+  // Clarity outage cannot break the gray flow.
+  runApp(ClarityWidget(
+    clarityConfig: FlameInsight.config,
+    app: FlameSurgeRoot(
+      vault: vault,
+      netSensor: netSensor,
+      attribution: attribution,
+      configBeacon: configBeacon,
+      pushHub: pushHub,
+    ),
   ));
 }

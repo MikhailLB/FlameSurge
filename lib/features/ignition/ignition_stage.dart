@@ -25,6 +25,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/attribution_pipeline.dart';
 import '../../core/config_beacon.dart';
+import '../../core/flame_insight.dart';
 import '../../core/net_sensor.dart';
 import '../../core/push_hub.dart';
 import '../../core/vault.dart';
@@ -68,6 +69,8 @@ class _IgnitionStageState extends State<IgnitionStage>
   void initState() {
     super.initState();
 
+    FlameInsight.enterScreen('loading');
+
     _barCtrl = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 30),
@@ -109,6 +112,7 @@ class _IgnitionStageState extends State<IgnitionStage>
     // AppMode.fresh (pitfalls §12).
     final coldTap = sanitiseUrl(await widget.vault.pluckFreshTapLink());
     if (coldTap != null) {
+      FlameInsight.emit('route_push_link');
       final online = await widget.netSensor.probe();
       if (!online) {
         await _openTempest();
@@ -119,8 +123,11 @@ class _IgnitionStageState extends State<IgnitionStage>
     }
 
     final stage = widget.vault.readStage();
+    FlameInsight.writeTag('runtime_stage', stage.name);
     switch (stage) {
       case RuntimeStage.arena:
+        FlameInsight.writeTag('run_mode', 'native');
+        FlameInsight.emit('route_native');
         await _openArena();
         break;
       case RuntimeStage.portal:
@@ -135,6 +142,7 @@ class _IgnitionStageState extends State<IgnitionStage>
   Future<void> _firstLaunchFlow() async {
     final online = await widget.netSensor.probe();
     if (!online) {
+      FlameInsight.emit('route_offline');
       await _openTempest();
       return;
     }
@@ -177,16 +185,34 @@ class _IgnitionStageState extends State<IgnitionStage>
       locale: locale,
       pushToken: widget.pushHub.token,
     );
+    _identifyFromPayload(payload);
     final BeaconResponse verdict =
         await widget.configBeacon.queryBeacon(payload);
 
     if (verdict.hasUsableUrl) {
       await widget.vault.writeStage(RuntimeStage.portal);
+      FlameInsight.writeTag('run_mode', 'web');
+      FlameInsight.emit('route_web');
       await _openPortal(verdict.url!, promptForPush: true);
     } else {
       await widget.vault.writeStage(RuntimeStage.arena);
+      FlameInsight.writeTag('run_mode', 'native');
+      FlameInsight.emit('route_native');
       await _openArena();
     }
+  }
+
+  void _identifyFromPayload(Map<String, dynamic> body) {
+    FlameInsight.identify(
+      body['af_id']?.toString(),
+      tags: <String, String>{
+        'af_status': body['af_status']?.toString() ?? '',
+        'media_source': body['media_source']?.toString() ?? '',
+        'campaign': body['campaign']?.toString() ?? '',
+        'os': body['os']?.toString() ?? '',
+        'locale': body['locale']?.toString() ?? '',
+      },
+    );
   }
 
   Future<void> _returningPortalFlow() async {
@@ -194,9 +220,12 @@ class _IgnitionStageState extends State<IgnitionStage>
     if (!online) {
       final savedUrl = await widget.vault.readPortalUrl();
       if (savedUrl != null && !widget.vault.isPortalUrlExpired()) {
+        FlameInsight.writeTag('run_mode', 'web');
+        FlameInsight.emit('route_cached_link');
         await _openPortal(savedUrl, promptForPush: false);
         return;
       }
+      FlameInsight.emit('route_offline');
       await _openTempest();
       return;
     }
@@ -216,6 +245,7 @@ class _IgnitionStageState extends State<IgnitionStage>
       locale: locale,
       pushToken: widget.pushHub.token,
     );
+    _identifyFromPayload(payload);
     final BeaconResponse verdict =
         await widget.configBeacon.queryBeacon(payload);
 
@@ -226,13 +256,18 @@ class _IgnitionStageState extends State<IgnitionStage>
     // below in `_openPortal`. That helper is the single source of truth
     // (granted / OS-denied / cooldown active → skip; otherwise → show).
     if (verdict.hasUsableUrl) {
+      FlameInsight.writeTag('run_mode', 'web');
+      FlameInsight.emit('route_web');
       await _openPortal(verdict.url!, promptForPush: true);
       return;
     }
     if (savedUrl != null) {
+      FlameInsight.writeTag('run_mode', 'web');
+      FlameInsight.emit('route_cached_link');
       await _openPortal(savedUrl, promptForPush: true);
       return;
     }
+    FlameInsight.emit('route_offline');
     await _openTempest();
   }
 
@@ -274,6 +309,21 @@ class _IgnitionStageState extends State<IgnitionStage>
 
     final shouldAsk =
         promptForPush && widget.vault.shouldOfferPushPrompt();
+
+    // Classify this session's push-permission stance even when we're NOT
+    // showing the invite (returning-portal users, cooldown-suppressed, etc.),
+    // so the `notif_permission` tag is never blank on the Clarity dashboard.
+    if (!shouldAsk) {
+      final String stance;
+      if (widget.vault.isPushGranted()) {
+        stance = 'granted';
+      } else if (widget.vault.isPushOsDenied()) {
+        stance = 'os_denied';
+      } else {
+        stance = 'snoozed';
+      }
+      FlameInsight.writeTag('notif_permission', stance);
+    }
 
     if (shouldAsk) {
       Navigator.of(context).pushReplacement(
