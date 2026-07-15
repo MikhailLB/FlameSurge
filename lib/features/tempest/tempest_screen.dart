@@ -64,7 +64,7 @@ class _TempestScreenState extends State<TempestScreen>
     final isPortrait = orientation == Orientation.portrait;
     final bg = isPortrait
         ? 'assets/Vertical_Nowifi_Screen.webp'
-        : 'assets/Horizontal_Nowifi_Screen.webp';
+        : 'assets/no_wifi_screen_hor.png';
     final size = MediaQuery.of(context).size;
 
     return Scaffold(

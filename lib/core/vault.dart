@@ -19,11 +19,12 @@ class Vault {
   static const String _kPortalUrl = 'portal_url_v1';
   static const String _kPushUrl = 'push_landing_v1';
 
-  final FlutterSecureStorage _safe = const FlutterSecureStorage(
-    aOptions: AndroidOptions(
-      encryptedSharedPreferences: true,
-    ),
-  );
+  // flutter_secure_storage 10.x deprecated the Jetpack Security-backed
+  // `encryptedSharedPreferences` flag; the plugin now migrates values into a
+  // custom cipher store on first access, so the default AndroidOptions are
+  // enough. Kept as a field so tests can swap in a mock without touching
+  // every call-site.
+  final FlutterSecureStorage _safe = const FlutterSecureStorage();
 
   late SharedPreferences _prefs;
 

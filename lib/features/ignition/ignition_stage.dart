@@ -141,23 +141,33 @@ class _IgnitionStageState extends State<IgnitionStage>
 
     await widget.attribution.ignite();
 
+    // 30s here (was 25s) leaves room for the three-round GCD retry that
+    // kicks in inside `onInstallConversionData` when the first callback
+    // returns "Organic" — pitfalls §19 documents the false-positive that
+    // still surfaces even on SDK 6.18 when the referrer service is
+    // unavailable or the fingerprint match lags behind the app-open.
     await Future.wait<void>(<Future<void>>[
       widget.attribution
-          .awaitVerdict(timeout: const Duration(seconds: 25))
+          .awaitVerdict(timeout: const Duration(seconds: 30))
           .then((_) {}),
       widget.attribution.awaitDeepLink(timeout: const Duration(seconds: 5)),
     ]);
 
-    // Phase 2 – deep link had a real click but install callback stalled.
-    if (!widget.attribution.hasInstallBody &&
-        widget.attribution.deepLinkLooksNonOrganic) {
+    // Phase 2 – GCD long-poll. Fires whenever we still lack a *definitive*
+    // non-organic verdict: either the SDK never called us back, the deep
+    // link clearly implies non-organic but the install body is still
+    // missing, or the callback returned "Organic" (pitfalls §19). In the
+    // last case the retries inside `onInstallConversionData` might have
+    // beaten the AppsFlyer backend by a few seconds, so we give it a bit
+    // more time before sealing the arena.
+    if (widget.attribution.needsExtendedPolling) {
       await Future.any<void>(<Future<void>>[
         widget.attribution.pollGcd(
-          maxSeconds: 90,
+          maxSeconds: 60,
           intervalSeconds: 4,
         ),
         widget.attribution
-            .awaitVerdict(timeout: const Duration(seconds: 90))
+            .awaitVerdict(timeout: const Duration(seconds: 60))
             .then((_) {}),
       ]);
     }

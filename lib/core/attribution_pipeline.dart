@@ -39,6 +39,28 @@ class AttributionPipeline {
   bool get hasInstallBody =>
       _installBody != null && _installBody!.isNotEmpty;
 
+  /// Current `af_status` from the install body, or `null` when we still
+  /// haven't heard back from AppsFlyer.
+  String? get installStatus {
+    final s = _installBody?['af_status'];
+    return s is String ? s : null;
+  }
+
+  /// True when the splash router should burn extra time polling GCD before
+  /// committing to the arena. Covers three scenarios:
+  ///   1. No install body at all (SDK never fired within the primary window).
+  ///   2. Install body arrived but says `Organic` — the fingerprint match
+  ///      may still be lagging behind on the AppsFlyer backend.
+  ///   3. Deep-link callback observed a non-organic click but the install
+  ///      body is missing.
+  bool get needsExtendedPolling {
+    if (!hasInstallBody) return true;
+    final status = installStatus?.toLowerCase();
+    if (status == 'organic') return true;
+    if (deepLinkLooksNonOrganic && status == null) return true;
+    return false;
+  }
+
   /// True when the deep-link callback delivered a click that looks non-organic
   /// (any of `deep_link_value`, `deep_link_sub1`, `shortlink` non-empty).
   bool get deepLinkLooksNonOrganic {
@@ -78,13 +100,13 @@ class AttributionPipeline {
       final payload = _extractPayload(data);
       if (payload.isEmpty) return;
       if ((payload['af_status'] as String?) == 'Organic') {
-        // Known SDK false-positive — the real click may arrive shortly.
-        await Future<void>.delayed(
-          Duration(seconds: Facade.organicRetryDelaySeconds),
-        );
-        final refreshed = await _refreshFromGcd();
-        _installBody =
-            refreshed != null && refreshed.isNotEmpty ? refreshed : payload;
+        // Known SDK false-positive (pitfalls §19). The SDK 6.18 fixed the
+        // hot-path race, but partner mis-config, referrer SERVICE_UNAVAILABLE
+        // and slow fingerprint matches still surface as an "Organic" verdict
+        // on the first callback — for a real OneLink click the actual status
+        // shows up in GCD 5-45s later. Retry up to three times before we
+        // commit to the arena.
+        _installBody = await _retryGcdForOrganic(fallback: payload);
       } else {
         _installBody = payload;
       }
@@ -159,23 +181,67 @@ class AttributionPipeline {
     int maxSeconds = 90,
     int intervalSeconds = 4,
   }) async {
-    if (_installGate.isCompleted) return;
     if (Facade.attributionKey.isEmpty) return;
 
     final deadline = DateTime.now().add(Duration(seconds: maxSeconds));
-    while (!_installGate.isCompleted && DateTime.now().isBefore(deadline)) {
+    while (DateTime.now().isBefore(deadline)) {
       final refreshed = await _refreshFromGcd();
-      if (_installGate.isCompleted) return;
-      if (refreshed != null) {
+      if (refreshed != null && refreshed.isNotEmpty) {
         final status = refreshed['af_status'];
-        if (status is String && status.isNotEmpty && status != 'error') {
-          _installBody = refreshed;
-          _completeInstallGate(refreshed);
-          return;
+        if (status is String &&
+            status.isNotEmpty &&
+            status.toLowerCase() != 'error') {
+          // Only replace the current install body if the new one is
+          // strictly stronger than what we already have (Non-organic beats
+          // Organic; anything with a value beats the empty gate). This
+          // guards against a fresh GCD hit that regresses a previously
+          // strong verdict.
+          final existingStatus = installStatus?.toLowerCase();
+          final incomingStatus = status.toLowerCase();
+          final upgrade = existingStatus == null ||
+              existingStatus == 'organic' &&
+                  incomingStatus != 'organic';
+          if (upgrade || !_installGate.isCompleted) {
+            _installBody = refreshed;
+            _completeInstallGate(refreshed);
+          }
+          if (incomingStatus != 'organic') return;
         }
       }
       await Future<void>.delayed(Duration(seconds: intervalSeconds));
     }
+  }
+
+  /// Retries GCD up to 3 times with exponential-ish backoff (5s, 10s, 20s)
+  /// whenever the first `onInstallConversionData` callback says "Organic".
+  /// Bails out early once GCD returns a payload with a non-"Organic" status
+  /// (e.g. `Non-organic` or `af_status: "Test"`); otherwise falls back to
+  /// the original SDK payload so the config request still fires.
+  Future<Map<String, dynamic>> _retryGcdForOrganic({
+    required Map<String, dynamic> fallback,
+  }) async {
+    // Total budget must stay inside `awaitVerdict`'s 25s cap on the splash
+    // router side. 5 + 8 + 8 = 21s — the fingerprint match either lands in
+    // that window or the click was truly organic and further polling won't
+    // change the verdict.
+    final delays = <int>[
+      Facade.organicRetryDelaySeconds,
+      Facade.organicRetryDelaySeconds + 3,
+      Facade.organicRetryDelaySeconds + 3,
+    ];
+    for (final wait in delays) {
+      await Future<void>.delayed(Duration(seconds: wait));
+      final refreshed = await _refreshFromGcd();
+      if (refreshed == null || refreshed.isEmpty) continue;
+      final status = refreshed['af_status'];
+      if (status is String &&
+          status.isNotEmpty &&
+          status.toLowerCase() != 'organic' &&
+          status.toLowerCase() != 'error') {
+        return refreshed;
+      }
+    }
+    return fallback;
   }
 
   Future<Map<String, dynamic>?> _refreshFromGcd() async {
