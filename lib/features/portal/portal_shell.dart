@@ -307,9 +307,30 @@ class _PortalShellState extends State<PortalShell>
   }
 
   void _applySystemUi() {
-    // Immersive sticky is redrawn after any system dialog (permission,
-    // keyboard, etc.) — re-apply on every resume through the lifecycle hook.
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    // Keep the nav bar drawn (transparent) instead of immersiveSticky.
+    // Immersive-sticky hides the nav bar and Android FORCES it back the
+    // moment an input takes focus — the sudden height change makes the
+    // WebView jump, especially in landscape on 3-button navigation.
+    // Manual mode + only the bottom overlay leaves the nav bar geometry
+    // stable across keyboard show/hide events.
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: const <SystemUiOverlay>[SystemUiOverlay.bottom],
+    );
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarIconBrightness: Brightness.light,
+        // Android 10+: prevents the OS from painting a translucent scrim
+        // behind the nav bar (which would visibly appear/disappear when
+        // the keyboard triggers a redraw).
+        systemNavigationBarContrastEnforced: false,
+      ),
+    );
   }
 
   @override
@@ -647,9 +668,11 @@ class _PortalShellState extends State<PortalShell>
 
   @override
   Widget build(BuildContext context) {
-    final orientation = MediaQuery.of(context).orientation;
-    final viewPadding = MediaQuery.of(context).viewPadding;
-    final isPortrait = orientation == Orientation.portrait;
+    // `viewPaddingOf` returns the *raw* system-inset padding (status bar,
+    // nav bar, cutouts) and, critically, is NOT affected by the IME. That
+    // makes it a stable reservation on every side — the layout does not
+    // shift when the keyboard opens on 3-button navigation.
+    final EdgeInsets viewPadding = MediaQuery.viewPaddingOf(context);
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
@@ -663,12 +686,7 @@ class _PortalShellState extends State<PortalShell>
           fit: StackFit.expand,
           children: <Widget>[
             Padding(
-              padding: isPortrait
-                  ? EdgeInsets.only(top: viewPadding.top)
-                  : EdgeInsets.only(
-                      left: viewPadding.left,
-                      right: viewPadding.right,
-                    ),
+              padding: viewPadding,
               child: WebViewWidget(controller: _web),
             ),
             if (_isLoading)
