@@ -118,7 +118,13 @@ class _IgnitionStageState extends State<IgnitionStage>
         await _openTempest();
         return;
       }
-      await _openPortal(coldTap.toString(), promptForPush: false);
+      // `promptForPush: true` even on cold-tap: normally the user already
+      // granted POST_NOTIFICATIONS (otherwise the FCM message wouldn't have
+      // been displayed), and `shouldOfferPushPrompt()` will short-circuit for
+      // them. But if the OS-level grant was revoked or the vault flag was
+      // cleared, this is the last chance to re-ask — offline branches never
+      // get here, so this path must be self-contained.
+      await _openPortal(coldTap.toString(), promptForPush: true);
       return;
     }
 
@@ -222,7 +228,13 @@ class _IgnitionStageState extends State<IgnitionStage>
       if (savedUrl != null && !widget.vault.isPortalUrlExpired()) {
         FlameInsight.writeTag('run_mode', 'web');
         FlameInsight.emit('route_cached_link');
-        await _openPortal(savedUrl, promptForPush: false);
+        // `promptForPush: true` — POST_NOTIFICATIONS is a *local* Android
+        // grant, so it works even offline. If the previous session ended
+        // before the user answered the invite (cold-killed on the WebView),
+        // this is the only chance to ask again on an offline relaunch.
+        // `shouldOfferPushPrompt()` still gates it, so users who already
+        // answered are never re-prompted here.
+        await _openPortal(savedUrl, promptForPush: true);
         return;
       }
       FlameInsight.emit('route_offline');

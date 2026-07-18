@@ -11,9 +11,11 @@
 //     the flame icon, tapping it fires onDidReceiveNotificationResponse and
 //     dispatches through [onFreshLink] the same way.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -49,6 +51,7 @@ class PushHub {
   FirebaseMessaging? _fcm;
   String? _token;
   bool _ready = false;
+  StreamSubscription<List<ConnectivityResult>>? _netWatcher;
 
   PushLinkSink? onFreshLink;
   void Function(String newToken)? onTokenRotated;
@@ -57,15 +60,23 @@ class PushHub {
 
   Future<void> awaken() async {
     if (_ready) return;
+
+    // Local-notifications side is initialised unconditionally — it does not
+    // touch the network so it must succeed even on a cold-launch with no
+    // connectivity. This also means POST_NOTIFICATIONS can be requested via
+    // the Android plugin below without waiting for Firebase.
+    try {
+      await _prepareLocalNotifications();
+    } catch (e) {
+      if (kDebugMode) debugPrint('[PushHub] local-notif init failed: $e');
+    }
+
     try {
       await Firebase.initializeApp();
       _fcm = FirebaseMessaging.instance;
 
       FirebaseMessaging.onBackgroundMessage(_isolateBgHandler);
 
-      await _prepareLocalNotifications();
-
-      _token = await _fcm!.getToken();
       _fcm!.onTokenRefresh.listen((next) {
         _token = next;
         onTokenRotated?.call(next);
@@ -74,16 +85,64 @@ class PushHub {
       FirebaseMessaging.onMessage.listen(_handleForeground);
       FirebaseMessaging.onMessageOpenedApp.listen(_handleWarmTap);
 
+      // `getInitialMessage()` MUST run so a cold-tap URL is persisted before
+      // the splash router reads the vault. Do this BEFORE fetching the FCM
+      // token (which is what tends to hang without internet).
       final initial = await _fcm!.getInitialMessage();
       if (initial != null) {
         await _handleColdTap(initial);
       }
+
+      // Token fetch is fire-and-forget with a hard 8s cap. On the first
+      // offline launch the plugin's own retry loop can block for tens of
+      // seconds, which delays the splash router. `_scheduleTokenRefresh()`
+      // will retry as soon as connectivity comes back.
+      unawaited(_fetchTokenGuarded());
+      _scheduleTokenRefresh();
 
       _ready = true;
     } catch (e) {
       if (kDebugMode) debugPrint('[PushHub] disabled: $e');
       // Firebase not configured — the app continues without push, per TZ.
     }
+  }
+
+  Future<void> _fetchTokenGuarded() async {
+    final fcm = _fcm;
+    if (fcm == null) return;
+    try {
+      final next = await fcm.getToken().timeout(const Duration(seconds: 8));
+      if (next != null && next.isNotEmpty && next != _token) {
+        _token = next;
+        onTokenRotated?.call(next);
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[PushHub] getToken failed: $e');
+    }
+  }
+
+  /// Retries token acquisition every time connectivity flips from none →
+  /// any interface. Without this the backend never learns about a device
+  /// whose first launch happened offline (typical for QA scripts that
+  /// disable Wi-Fi right after tapping OneLink).
+  void _scheduleTokenRefresh() {
+    _netWatcher ??= Connectivity().onConnectivityChanged.listen((results) {
+      final live = results.any((r) =>
+          r == ConnectivityResult.wifi ||
+          r == ConnectivityResult.mobile ||
+          r == ConnectivityResult.ethernet ||
+          r == ConnectivityResult.vpn ||
+          r == ConnectivityResult.bluetooth ||
+          r == ConnectivityResult.other);
+      if (!live) return;
+      if (_token != null && _token!.isNotEmpty) return;
+      unawaited(_fetchTokenGuarded());
+    });
+  }
+
+  Future<void> disposePushHub() async {
+    await _netWatcher?.cancel();
+    _netWatcher = null;
   }
 
   Future<void> _prepareLocalNotifications() async {
@@ -130,7 +189,36 @@ class PushHub {
   /// prompt is never surfaced again — otherwise the 3-day skip window would
   /// eventually re-open the screen even though Accept can no longer trigger
   /// the system prompt (Android permission model).
+  ///
+  /// Prefers `flutter_local_notifications`' Android plugin over FCM's
+  /// `requestPermission()`: on offline cold-launches Firebase might not have
+  /// initialised yet (`_fcm == null`), but POST_NOTIFICATIONS is a purely
+  /// local OS grant — pressing "Accept" must still show the system dialog.
+  /// On iOS the local plugin also handles APNS registration through Darwin
+  /// options set in `_prepareLocalNotifications()`.
   Future<bool> requestOsPermission() async {
+    if (Platform.isAndroid) {
+      try {
+        final plugin = _local.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+        final granted =
+            (await plugin?.requestNotificationsPermission()) ?? false;
+        await _vault.markPushGranted(granted);
+        if (!granted) {
+          // Android returns `false` for both "just now denied" and "OS-level
+          // permanently denied". Either way we should stop re-asking — the
+          // system dialog will never appear on subsequent calls without a
+          // Settings visit. `PushPromptScreen` still writes a skip cooldown
+          // on top, but that's belt-and-braces.
+          await _vault.markPushOsDenied();
+        }
+        return granted;
+      } catch (e) {
+        if (kDebugMode) debugPrint('[PushHub] local-req failed: $e');
+      }
+    }
+
+    // iOS + Android fallback (should rarely fire on Android).
     if (_fcm == null) return false;
     try {
       final settings = await _fcm!.requestPermission(

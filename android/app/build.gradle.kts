@@ -33,7 +33,7 @@ android {
         applicationId = "com.volcano.flamesurge"
         minSdk = 24
         targetSdk = 35
-        versionCode = 4
+        versionCode = 7
         versionName = "1.0.1"
         multiDexEnabled = true
     }

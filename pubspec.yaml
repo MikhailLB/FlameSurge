@@ -2,7 +2,7 @@ name: flame_surge
 description: "Flame Surge - a volcanic placement puzzle."
 publish_to: 'none'
 
-version: 1.0.1+4
+version: 1.0.1+7
 
 environment:
   sdk: ^3.12.2
